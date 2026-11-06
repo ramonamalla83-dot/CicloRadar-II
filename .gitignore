@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+flutter_app/ios/Flutter/Generated.xcconfig
+flutter_app/ios/Flutter/flutter_export_environment.sh
+flutter_app/ios/Flutter/ephemeral/
