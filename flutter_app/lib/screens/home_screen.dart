@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/cycling_activity.dart';
 import '../providers/app_state.dart';
+import '../services/health_sync_service.dart';
 
 const _orange = Color(0xFFF97316);
 const _surface = Color(0xFF18181B);
@@ -72,6 +74,8 @@ class HomeScreen extends StatelessWidget {
                 style: TextStyle(color: _muted, fontSize: 14),
               ),
               const SizedBox(height: 18),
+              const _HealthSyncCard(),
+              const SizedBox(height: 12),
               const _DemoNotice(),
               const SizedBox(height: 16),
               _WeeklyActivityCard(
@@ -112,6 +116,43 @@ class HomeScreen extends StatelessWidget {
                   title: 'Rutas guardadas', trailing: '4 en total'),
               const SizedBox(height: 10),
               ..._savedRoutes.map((route) => _RouteTile(route: route)),
+              const SizedBox(height: 24),
+              const _SectionHeader(
+                title: 'Recorridos registrados',
+                trailing: 'GPS real',
+              ),
+              const SizedBox(height: 10),
+              if (appState.cyclingActivities.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _surface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Text(
+                    appState.cyclingActivityStatus ??
+                        'Todavía no tienes recorridos GPS. Inicia uno desde el mapa.',
+                    style: const TextStyle(color: _muted, fontSize: 13),
+                  ),
+                )
+              else
+                ...appState.cyclingActivities.map(
+                  (activity) => _RecordedRideTile(
+                    activity: activity,
+                    isSynced: appState.isCyclingActivitySynced(activity.id),
+                    syncEnabled: appState.healthSyncEnabled,
+                    syncInProgress: appState.healthSyncInProgress,
+                    onExport: () => _exportActivity(context, activity),
+                  ),
+                ),
+              if (appState.healthSyncStatus != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  appState.healthSyncStatus!,
+                  style: const TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: 12),
               SizedBox(
                 height: 48,
@@ -155,7 +196,7 @@ class _DemoNotice extends StatelessWidget {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Vista de ejemplo. La app todavía no registra recorridos GPS ni guarda rutas reales.',
+              'Métricas y rutas predefinidas de Inicio son de ejemplo. Los recorridos grabados desde el mapa se guardan por separado.',
               style: TextStyle(
                   color: Color(0xFFD4D4D8), fontSize: 12, height: 1.4),
             ),
@@ -170,6 +211,223 @@ class _DemoNotice extends StatelessWidget {
               letterSpacing: 0.8,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _exportActivity(
+  BuildContext context,
+  CyclingActivity activity,
+) async {
+  try {
+    await context.read<AppState>().exportCyclingActivity(activity.id);
+  } on HealthSyncException catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.message)),
+    );
+  } on StateError catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.message)),
+    );
+  } on Exception catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('No se pudo exportar la ruta: $error')),
+    );
+  }
+}
+
+class _HealthSyncCard extends StatelessWidget {
+  const _HealthSyncCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = context.watch<AppState>();
+    final isSupported = appState.healthSyncSupported;
+    final providerName = appState.healthProviderName;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: appState.healthSyncEnabled
+              ? const Color(0xFF22C55E).withValues(alpha: 0.45)
+              : Colors.white10,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.health_and_safety, color: _orange, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Sincronización de salud',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (appState.healthSyncEnabled)
+                IconButton(
+                  tooltip: 'Desconectar $providerName',
+                  onPressed: appState.healthSyncInProgress
+                      ? null
+                      : () => _setHealthSync(context, false),
+                  icon: const Icon(Icons.link_off, color: Colors.white70),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isSupported
+                ? appState.healthSyncEnabled
+                    ? 'Conectado a $providerName. Los nuevos recorridos se exportarán automáticamente.'
+                    : 'Exporta la actividad y el recorrido GPS a $providerName. Solo se envían con tu autorización.'
+                : 'La sincronización de salud funciona en la app Android o iOS.',
+            style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+          ),
+          if (isSupported && !appState.healthSyncEnabled) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: appState.healthSyncInProgress
+                    ? null
+                    : () => _setHealthSync(context, true),
+                icon: appState.healthSyncInProgress
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.link),
+                label: Text('Conectar $providerName'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _orange,
+                  side: BorderSide(color: _orange.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (appState.healthSyncStatus != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              appState.healthSyncStatus!,
+              style: const TextStyle(color: _muted, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setHealthSync(BuildContext context, bool enabled) async {
+    try {
+      await context.read<AppState>().setHealthSyncEnabled(enabled);
+    } on HealthSyncException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } on Exception catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo conectar: $error')),
+      );
+    }
+  }
+}
+
+class _RecordedRideTile extends StatelessWidget {
+  const _RecordedRideTile({
+    required this.activity,
+    required this.isSynced,
+    required this.syncEnabled,
+    required this.syncInProgress,
+    required this.onExport,
+  });
+
+  final CyclingActivity activity;
+  final bool isSynced;
+  final bool syncEnabled;
+  final bool syncInProgress;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final startedAt = activity.startedAt.toLocal();
+    final date = '${startedAt.day.toString().padLeft(2, '0')}/'
+        '${startedAt.month.toString().padLeft(2, '0')}/'
+        '${startedAt.year} · '
+        '${startedAt.hour.toString().padLeft(2, '0')}:'
+        '${startedAt.minute.toString().padLeft(2, '0')}';
+    final minutes = activity.duration.inMinutes;
+    final duration = minutes >= 60
+        ? '${minutes ~/ 60} h ${minutes % 60} min'
+        : '$minutes min';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.directions_bike, color: _orange, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${(activity.distanceMeters / 1000).toStringAsFixed(2)} km · $duration',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$date · ${activity.route.length} puntos GPS',
+                  style: const TextStyle(color: _muted, fontSize: 11),
+                ),
+                if (isSynced)
+                  const Text(
+                    'Sincronizada',
+                    style: TextStyle(color: Color(0xFF22C55E), fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+          if (syncEnabled && !isSynced)
+            IconButton(
+              tooltip: 'Exportar a salud',
+              onPressed: syncInProgress ? null : onExport,
+              icon: syncInProgress
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload, color: _orange),
+            ),
         ],
       ),
     );

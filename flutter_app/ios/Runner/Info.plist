@@ -41,6 +41,11 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>CicloRadar usa tu ubicación en segundo plano para mantener la telemetría del radar comunitaria y la detección SOS activa mientras pedaleas.</string>
 
+	<key>NSHealthShareUsageDescription</key>
+	<string>CicloRadar solicita acceso a Salud para asociar tus recorridos ciclistas con tu actividad física.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>CicloRadar guarda en Salud los entrenamientos y las rutas GPS que grabes, solo con tu autorización.</string>
+
 	<!-- Permisos de Notificaciones y Audio -->
 	<key>UIBackgroundModes</key>
 	<array>

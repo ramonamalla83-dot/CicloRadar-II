@@ -9,6 +9,7 @@ import '../models/map_layer.dart';
 import '../models/safety_report.dart';
 import '../providers/app_state.dart';
 import '../services/eta_estimation_service.dart';
+import '../services/health_sync_service.dart';
 import '../services/safety_report_service.dart';
 import '../widgets/advanced_night_mode_filter.dart';
 import '../widgets/weather_map_widget.dart';
@@ -104,6 +105,19 @@ class _MapScreenState extends State<MapScreen> {
                 }).toList(),
               ),
             ],
+            if (appState.isRecordingCyclingActivity &&
+                appState.activeCyclingRoute.length > 1)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: appState.activeCyclingRoute
+                        .map((point) => point.position)
+                        .toList(growable: false),
+                    strokeWidth: 5,
+                    color: const Color(0xFFF97316),
+                  ),
+                ],
+              ),
             if (_etaDestination != null)
               PolylineLayer(
                 polylines: [
@@ -332,6 +346,27 @@ class _MapScreenState extends State<MapScreen> {
           bottom: 100,
           child: Column(
             children: [
+              if (appState.cyclingRouteRecordingSupported)
+                FloatingActionButton.extended(
+                  heroTag: 'fab_ride_recording',
+                  onPressed: _toggleCyclingActivity,
+                  backgroundColor: appState.isRecordingCyclingActivity
+                      ? Colors.red.shade700
+                      : const Color(0xFF18181B),
+                  foregroundColor: Colors.white,
+                  icon: Icon(
+                    appState.isRecordingCyclingActivity
+                        ? Icons.stop_circle_outlined
+                        : Icons.fiber_manual_record,
+                  ),
+                  label: Text(
+                    appState.isRecordingCyclingActivity
+                        ? 'Finalizar'
+                        : 'Grabar',
+                  ),
+                ),
+              if (appState.cyclingRouteRecordingSupported)
+                const SizedBox(height: 10),
               AdvancedNightModeFilter(
                 enabled: appState.advancedNightModeEnabled,
                 child: FloatingActionButton.extended(
@@ -654,6 +689,116 @@ class _MapScreenState extends State<MapScreen> {
       _etaError = null;
       _isLoadingEta = false;
     });
+  }
+
+  Future<void> _toggleCyclingActivity() async {
+    final appState = context.read<AppState>();
+    if (!appState.isRecordingCyclingActivity) {
+      try {
+        await appState.startCyclingActivity();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Grabación iniciada. Mantén CicloRadar abierto durante el recorrido.',
+            ),
+          ),
+        );
+      } on StateError catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+      return;
+    }
+
+    final shouldSave = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: const Color(0xFF18181B),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '¿Finalizar el recorrido?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Se guardará la ruta GPS en este dispositivo. '
+                'Se enviará a salud solo si activaste la sincronización.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Descartar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Guardar ruta'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || shouldSave == null) return;
+    if (!shouldSave) {
+      appState.cancelCyclingActivity();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Se descartó el recorrido.')),
+      );
+      return;
+    }
+
+    try {
+      final activity = await appState.finishCyclingActivity();
+      if (!mounted) return;
+      final distanceKm = (activity.distanceMeters / 1000).toStringAsFixed(2);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ruta guardada: $distanceKm km.'),
+        ),
+      );
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } on HealthSyncException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ruta guardada; no se pudo exportar: ${error.message}'),
+        ),
+      );
+    } on Exception catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar la ruta: $error')),
+      );
+    }
   }
 
   Future<void> _beginSafetyReport() async {

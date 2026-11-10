@@ -101,10 +101,19 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('Kilómetros recorridos'), findsOneWidget);
     expect(find.text('75,5'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+
+    await tester.scrollUntilVisible(
+      find.text('4 h 32 min'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('4 h 32 min'), findsOneWidget);
     expect(find.text('Rutas guardadas'), findsOneWidget);
-    expect(find.textContaining('Vista de ejemplo.'), findsOneWidget);
-    expect(find.byType(CustomPaint), findsWidgets);
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, 1000));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('son de ejemplo.'), findsOneWidget);
 
     final mapButton = find.text('Abrir radar del mapa');
     await tester.scrollUntilVisible(
